@@ -1,19 +1,72 @@
-# Taskify Premium – Color Upgrade
+# Taskify Premium v1.2 — Sir Requirements Upgrade
 
-A colorful Flutter To-Do app with a **5-second splash**, **4 image dashboard tiles**, **All / Pending / Completed tabs**, **Delete**, **Stats**, and a **create/edit profile** (name, bio, 6 emoji avatars). Tasks and profile are stored locally with `SharedPreferencesAsync`.
+A Flutter To-Do assignment with multiple Dart files, offline SharedPreferences,
+asset-only images, a five-second animated splash, and a colorful interface.
 
-## Install or update existing app
+## Implemented
 
-1. Back up your existing Flutter project first.
-2. If updating an existing `taskify_premium` app, replace **only** its `lib/` folder, `assets/`, `pubspec.yaml`, `analysis_options.yaml`, and `test/widget_test.dart` with ZIP contents. **Do not delete `.git`**, platform folders or other personal files.
-3. If starting fresh, run `flutter create taskify_premium` first, then copy the same items.
-4. `flutter pub get` then `flutter run -d chrome`.
-5. `flutter analyze` and `flutter test` for local verification.
+- 5-second animation, then home dashboard
+- Profile name, email, bio, emoji-avatar create/edit saved locally
+- In-app notification bell displaying Todo/Pending items (not OS push notifications)
+- Dashboard counts: Total To-Do, Pending, Approved, Cancelled
+- Add/Edit task page: auto-generated ID, name, title, description, due date, status
+- Save creates/updates and returns to the To-Do List page
+- To-Do List with status filters, checkbox to approve/reopen, edit, delete confirmation
+- Stats page, bottom navigation, asset images
+- SharedPreferences keys stay `taskify_todos` and `taskify_profile`
+- Earlier Taskify `{id, title, done}` records migrate to the new structure
 
-Profile: bottom `Profile` icon → enter a name, optional bio, choose an emoji avatar → **Save profile**. Edit from the same page later; dashboard avatar also takes you there. All existing tasks saved using key `taskify_todos` remain compatible with the previous version.
+## Install onto your already-working Flutter project
 
-## GitHub
+1. Make a backup of your current Flutter project.
+2. Copy this package's `lib/`, `assets/`, `pubspec.yaml`, `analysis_options.yaml`
+   and `test/widget_test.dart` into your existing `taskify_premium` folder.
+3. Do not delete `.git/`, `android/`, `windows/`, `ios/`, etc.
+4. In VS Code's terminal, from the project root, run:
 
-Run `git status`, then `git add .`, `git commit -m "Add editable profile and vibrant task colors"`, `git push` (assuming the existing project is already connected to your GitHub remote).
+```powershell
+flutter pub get
+flutter analyze
+flutter test
+flutter run -d chrome
+```
 
-Flutter SDK is not installed in the artifact-build environment; run the checks above on your own PC. The splash screen test timing may need adjustment if the framework reports a test-specific timer issue; share its detailed exception log if so.
+For an upgrade, existing browser/Windows app local storage should remain
+available only if you run the same app under the same local storage origin.
+GitHub does NOT sync locally saved tasks or profile details to another PC.
+
+## Status colors
+
+- Todo: blue
+- Pending: orange
+- Approved: green
+- Cancelled: red/pink
+
+An unchecked prior-version task migrates to **Pending**. A completed prior-version
+task migrates to **Approved**. Newly added tasks default to **Todo**.
+
+## Architecture
+
+- `models/todo.dart`: task model, serialization, migration
+- `services/todo_storage.dart`: SharedPreferences persistence
+- `screens/splash_screen.dart`: five-second animated landing screen
+- `screens/home_screen.dart`: dashboard, navigation, notifications, stats, CRUD
+- `screens/task_form_screen.dart`: add/edit task form
+- `screens/profile_screen.dart`: profile name/email/avatar/bio
+- `widgets/task_list.dart`: status filters, task rows, edit/delete/approve actions
+
+No extra runtime plugins beyond `shared_preferences`. All Dart files stay within
+350 lines individually (the brief's per-file limit), not 350 lines in total.
+
+## Notes for demo
+
+- Tap Add To-Do > fill Name + Title + optional Description + Date > choose
+  status > Save. It automatically opens the List tab.
+- Tap the blue pencil on a task to edit, checkbox to approve, pink trash to
+  delete. Use the Status dropdown to change to Cancelled.
+- Tap the bell to see your pending/to-do tasks. This is an **in-app list**, not
+  background notification delivery.
+- Tap Profile to save your name/email and select an emoji avatar.
+
+This ZIP contains source files and resources, not a full generated platform
+project. The original Flutter project supplies platform folders and tooling.

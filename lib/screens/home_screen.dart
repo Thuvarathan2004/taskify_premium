@@ -1,138 +1,327 @@
 import 'package:flutter/material.dart';
 import '../models/todo.dart';
 import '../services/todo_storage.dart';
-import '../widgets/add_task_sheet.dart';
 import '../widgets/task_list.dart';
 import 'profile_screen.dart';
-class HomeScreen extends StatefulWidget { const HomeScreen({super.key});
+import 'task_form_screen.dart';
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
-class _HomeScreenState extends State<HomeScreen> { final storage = TodoStorage();
+
+class _HomeScreenState extends State<HomeScreen> {
+  final storage = TodoStorage();
   List<Todo> tasks = [];
-  String filter = 'All', name = '', bio = '', avatar = '🚀';
+  Map<String, String> profile = {};
+  String filter = 'All';
   int tab = 0;
+
   @override
-  void initState() { super.initState(); load(); }
-  Future<void> load() async { try { final data = await storage.load();
-      final profile = await storage.loadProfile();
-      if (mounted) { setState(() { tasks = data; name = profile['name'] ?? '';
-        bio = profile['bio'] ?? ''; avatar = profile['avatar'] ?? '🚀';
-      }); }
-    } catch (_) { message('Could not load saved data'); }
+  void initState() {
+    super.initState();
+    load();
   }
-  void message(String s) { if (mounted) { ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(s))); }
+
+  Future<void> load() async {
+    try {
+      final savedTasks = await storage.load();
+      final savedProfile = await storage.loadProfile();
+      if (mounted) {
+        setState(() {
+          tasks = savedTasks;
+          profile = savedProfile;
+        });
+      }
+    } catch (_) {
+      message('Could not load saved data');
+    }
   }
-  Future<void> persist() async { try { await storage.save(tasks); }
-    catch (_) { message('Could not save tasks'); }
+
+  void message(String value) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value)));
   }
-  Future<void> add() async {
-    final title = await showModalBottomSheet<String>(context: context,
-      isScrollControlled: true, showDragHandle: true,
-      builder: (_) => const AddTaskSheet());
-    if (!mounted || title == null) return;
-    setState(() => tasks.insert(0,
-      Todo(DateTime.now().microsecondsSinceEpoch.toString(), title)));
+
+  Future<void> persist() async {
+    try {
+      await storage.save(tasks);
+    } catch (_) {
+      message('Could not save tasks');
+    }
+  }
+
+  Future<void> saveProfile(Map<String, String> value) async {
+    await storage.saveProfile(value);
+    if (mounted) setState(() => profile = value);
+  }
+
+  Future<void> openForm([Todo? existing]) async {
+    final result = await Navigator.push<Todo>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TaskFormScreen(
+          initial: existing,
+          defaultName: profile['name'] ?? '',
+        ),
+      ),
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      final index = tasks.indexWhere((task) => task.id == result.id);
+      if (index == -1) {
+        tasks.insert(0, result);
+      } else {
+        tasks[index] = result;
+      }
+      tab = 1; // Sir's flow: Save -> To-Do List page.
+      filter = 'All';
+    });
+    await persist();
+    message(existing == null ? 'Task added!' : 'Task updated!');
+  }
+
+  void approve(Todo task) {
+    final index = tasks.indexWhere((item) => item.id == task.id);
+    if (index == -1) return;
+    setState(() {
+      tasks[index] = task.copyWith(
+        status: task.status == 'Approved' ? 'Pending' : 'Approved',
+      );
+    });
     persist();
   }
-  void toggle(String id) { final i = tasks.indexWhere((t) => t.id == id);
-    if (i < 0) return;
-    setState(() => tasks[i] = tasks[i].toggle());
-    persist();
+
+  Future<void> delete(Todo task) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete this task?'),
+        content: Text(task.title),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false),
+              child: const Text('Keep')),
+          TextButton(onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete', style: TextStyle(color: Colors.redAccent))),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    setState(() => tasks.removeWhere((item) => item.id == task.id));
+    await persist();
+    message('Task deleted');
   }
-  void delete(String id) { setState(() => tasks.removeWhere((t) => t.id == id));
-    persist();
+
+  void openSection(String section) => setState(() {
+        tab = 1;
+        filter = section;
+      });
+
+  void notifications() {
+    final waiting = tasks.where((t) => t.status == 'Todo' || t.status == 'Pending').toList();
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Task Notifications 🔔',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+            const SizedBox(height: 14),
+            if (waiting.isEmpty)
+              const Text('Nothing pending right now 🎉')
+            else
+              SizedBox(
+                height: 230,
+                child: ListView.builder(
+                  itemCount: waiting.length,
+                  itemBuilder: (_, i) => ListTile(
+                    leading: const Icon(Icons.notifications_active_outlined,
+                        color: Colors.orangeAccent),
+                    title: Text(waiting[i].title),
+                    subtitle: Text('Status: ${waiting[i].status} • Due: '
+                        '${waiting[i].dueDate.isEmpty ? 'Not set' : waiting[i].dueDate}'),
+                  ),
+                ),
+              ),
+          ]),
+        ),
+      ),
+    );
   }
-  void open(String section) => setState(() { tab = section == 'Stats' ? 2 : 1;
-    filter = section == 'Stats' ? 'All' : section;
-  });
-  Future<void> saveProfile(String n, String b, String e) async {
-    setState(() { name = n; bio = b; avatar = e; });
-    try { await storage.saveProfile(n, b, e); }
-    catch (_) { message('Could not save profile'); }
-  }
+
   @override
-  Widget build(BuildContext context) { final done = tasks.where((t) => t.done).length;
-    final progress = tasks.isEmpty ? 0.0 : done / tasks.length;
-    return Scaffold( body: SafeArea(child: tab == 0 ? dashboard(done, progress) :
-        tab == 1 ? TaskList(tasks: tasks, filter: filter,
-          onFilter: (v) => setState(() => filter = v),
-          onToggle: toggle, onDelete: delete) :
-        tab == 2 ? stats(done, progress) : ProfileScreen(
-          key: ValueKey('$name|$bio|$avatar'),
-          name: name, bio: bio, avatar: avatar, onSave: saveProfile)),
-      floatingActionButton: tab == 3 ? null : FloatingActionButton(
-        onPressed: add, backgroundColor: const Color(0xFFFF5FBC),
-        child: const Icon(Icons.add, size: 30, color: Colors.white)),
+  Widget build(BuildContext context) {
+    final approved = tasks.where((t) => t.status == 'Approved').length;
+    final progress = tasks.isEmpty ? 0.0 : approved / tasks.length;
+    return Scaffold(
+      body: SafeArea(
+        child: tab == 0
+            ? dashboard(approved, progress)
+            : tab == 1
+                ? TaskList(
+                    tasks: tasks,
+                    filter: filter,
+                    onFilter: (value) => setState(() => filter = value),
+                    onEdit: (task) => openForm(task),
+                    onDelete: delete,
+                    onApprove: approve,
+                  )
+                : tab == 2
+                    ? stats(approved, progress)
+                    : ProfileScreen(
+                        key: ValueKey(profile.toString()),
+                        profile: profile,
+                        onSave: saveProfile,
+                      ),
+      ),
+      floatingActionButton: tab == 3
+          ? null
+          : FloatingActionButton.extended(
+              backgroundColor: const Color(0xFFFF60B9),
+              foregroundColor: Colors.white,
+              onPressed: openForm,
+              icon: const Icon(Icons.add),
+              label: const Text('Add To-Do'),
+            ),
       bottomNavigationBar: NavigationBar(
-        backgroundColor: const Color(0xFF151A3C), selectedIndex: tab,
+        selectedIndex: tab,
+        backgroundColor: const Color(0xFF151A3C),
         indicatorColor: const Color(0xFF6F3DB5),
-        onDestinationSelected: (v) => setState(() => tab = v), destinations: const [
+        onDestinationSelected: (index) => setState(() => tab = index),
+        destinations: const [
           NavigationDestination(icon: Icon(Icons.home_rounded), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.task_alt), label: 'Tasks'),
+          NavigationDestination(icon: Icon(Icons.list_alt), label: 'List'),
           NavigationDestination(icon: Icon(Icons.donut_large), label: 'Stats'),
-          NavigationDestination(icon: Icon(Icons.person), label: 'Profile'), ]));
+          NavigationDestination(icon: Icon(Icons.person), label: 'Profile'),
+        ],
+      ),
+    );
   }
-  Widget dashboard(int done, double progress) => SingleChildScrollView(
-    padding: const EdgeInsets.fromLTRB(20, 18, 20, 85),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        const Text('Taskify ✨', style: TextStyle(fontSize: 27,
-          fontWeight: FontWeight.w900)), InkWell(onTap: () => setState(() => tab = 3),
-          child: CircleAvatar(backgroundColor: const Color(0xFF8A4BDD),
-            child: Text(avatar, style: const TextStyle(fontSize: 22)))), ]),
-      const SizedBox(height: 24), Text('Hey, ${name.isEmpty ? 'superstar' : name}! 👋',
-        style: const TextStyle(fontSize: 27, fontWeight: FontWeight.bold)),
-      const Text('Ready to make today amazing?', style: TextStyle(color: Colors.white70)),
-      const SizedBox(height: 23), Container(padding: const EdgeInsets.all(21),
-        decoration: BoxDecoration(borderRadius: BorderRadius.circular(25),
-          gradient: const LinearGradient(colors: [
-            Color(0xFFAB3EDB), Color(0xFF375CF7)])),
+
+  Widget dashboard(int approved, double progress) {
+    final pending = tasks.where((t) => t.status == 'Pending').length;
+    final cancelled = tasks.where((t) => t.status == 'Cancelled').length;
+    final waiting = tasks.where((t) => t.status == 'Todo' || t.status == 'Pending').length;
+    return ListView(padding: const EdgeInsets.fromLTRB(20, 16, 20, 100), children: [
+      Row(children: [
+        const Expanded(child: Text('Taskify ✨',
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900))),
+        IconButton(
+          onPressed: notifications,
+          tooltip: 'Task notifications',
+          icon: Badge(
+            isLabelVisible: waiting > 0,
+            label: Text('$waiting'),
+            child: const Icon(Icons.notifications_outlined),
+          ),
+        ),
+        InkWell(
+          onTap: () => setState(() => tab = 3),
+          child: CircleAvatar(
+            backgroundColor: const Color(0xFF8A4BDD),
+            child: Text(profile['avatar'] ?? '🚀'),
+          ),
+        ),
+      ]),
+      const SizedBox(height: 20),
+      Text('Hi, ${profile['name']?.isNotEmpty == true ? profile['name'] : 'superstar'}! 👋',
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 25)),
+      if (profile['email']?.isNotEmpty == true)
+        Text(profile['email']!, style: const TextStyle(color: Colors.white70)),
+      const SizedBox(height: 20),
+      Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          gradient: const LinearGradient(colors: [Color(0xFFAB3EDB), Color(0xFF375CF7)]),
+        ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('$done / ${tasks.length} tasks completed',
-            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          Text('$approved / ${tasks.length} tasks approved',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
           const SizedBox(height: 14),
-          LinearProgressIndicator(value: progress, minHeight: 9,
-            borderRadius: BorderRadius.circular(15),
-            color: const Color(0xFF54FFCF), backgroundColor: Colors.white30),
-          const SizedBox(height: 8), const Text('Every step is a win 🌈'), ])),
-      const SizedBox(height: 27), const Text('Explore your space', style: TextStyle(
-        fontSize: 23, fontWeight: FontWeight.bold)), const SizedBox(height: 13),
-      GridView.count(shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2,
-        mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: .83, children: [
-          card('All', 'All Tasks', tasks.length, 'all.jpg', const Color(0xFFA65CFF)),
-          card('Pending', 'Pending', tasks.length - done, 'pending.jpg',
-            const Color(0xFFFFA839)),
-          card('Completed', 'Completed', done, 'completed.jpg', const Color(0xFF2FE3BD)),
-          card('Stats', 'Your Stats', (progress * 100).round(), 'stats.jpg',
-            const Color(0xFF4EBBFF), suffix: '%'), ]), ]));
-  Widget card(String key, String label, int count, String picture, Color tint,
-      {String suffix = ''}) => InkWell(onTap: () => open(key),
-    borderRadius: BorderRadius.circular(23), child: ClipRRect(
-      borderRadius: BorderRadius.circular(23),
-      child: Stack(fit: StackFit.expand, children: [
-        Image.asset('assets/images/$picture', fit: BoxFit.cover),
-        DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(
-          begin: Alignment.topCenter, end: Alignment.bottomCenter,
-          colors: [tint.withAlpha(90), const Color(0xE6000A20)]))),
-        Padding(padding: const EdgeInsets.all(15), child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Icon(Icons.north_east_rounded, color: tint), const Spacer(),
-            Text('$count$suffix', style: const TextStyle(
-              fontSize: 30, fontWeight: FontWeight.w900)),
-            Text(label, style: const TextStyle(
-              fontSize: 15, fontWeight: FontWeight.w600)), ])), ])));
-  Widget stats(int done, double progress) => Center(child: Column(
-    mainAxisAlignment: MainAxisAlignment.center, children: [
-      const Text('Your Progress 🌈', style: TextStyle(
-        fontSize: 29, fontWeight: FontWeight.bold)), const SizedBox(height: 28),
-      SizedBox(width: 185, height: 185, child: Stack( fit: StackFit.expand, children: [
-          CircularProgressIndicator(value: progress, strokeWidth: 16,
-            backgroundColor: const Color(0xFF303358), color: const Color(0xFF48EDC1)),
-          Center(child: Text('${(progress * 100).round()}%',
-            style: const TextStyle(fontSize: 42, fontWeight: FontWeight.w900))), ])),
-      const SizedBox(height: 24), Text('$done completed • ${tasks.length - done} pending',
-        style: const TextStyle(color: Colors.white70)), ]));
+          LinearProgressIndicator(value: progress, minHeight: 8,
+              color: const Color(0xFF54FFCF), backgroundColor: Colors.white30),
+          const SizedBox(height: 8),
+          const Text('Dream • Plan • Achieve 🌈'),
+        ]),
+      ),
+      const SizedBox(height: 22),
+      const Text('Your To-Do Dashboard',
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 12),
+      GridView.count(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        crossAxisCount: 2,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        childAspectRatio: .91,
+        children: [
+          card('All', 'Total To-Do', tasks.length, 'all.jpg', const Color(0xFF5BAEFF)),
+          card('Pending', 'Pending', pending, 'pending.jpg', const Color(0xFFFFAE4C)),
+          card('Approved', 'Approved', approved, 'completed.jpg', const Color(0xFF42E8AD)),
+          card('Cancelled', 'Cancelled', cancelled, 'stats.jpg', const Color(0xFFFF6D8F)),
+        ],
+      ),
+      const SizedBox(height: 19),
+      FilledButton.icon(
+        onPressed: openForm,
+        icon: const Icon(Icons.add_circle_outline),
+        label: const Text('Add New To-Do'),
+      ),
+    ]);
+  }
+
+  Widget card(String section, String label, int count, String image, Color tint) =>
+      InkWell(
+        onTap: () => openSection(section),
+        borderRadius: BorderRadius.circular(20),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Stack(fit: StackFit.expand, children: [
+            Image.asset('assets/images/$image', fit: BoxFit.cover),
+            DecoratedBox(decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [tint.withAlpha(130), const Color(0xEF07122F)],
+              ),
+            )),
+            Padding(
+              padding: const EdgeInsets.all(15),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(Icons.north_east, color: tint),
+                const Spacer(),
+                Text('$count', style: const TextStyle(
+                    fontSize: 32, fontWeight: FontWeight.w900)),
+                Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+              ]),
+            ),
+          ]),
+        ),
+      );
+
+  Widget stats(int approved, double progress) => Center(
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          const Text('Your Progress 🌈',
+              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 28),
+          SizedBox(
+            height: 180,
+            width: 180,
+            child: Stack(fit: StackFit.expand, children: [
+              CircularProgressIndicator(value: progress, strokeWidth: 16,
+                color: const Color(0xFF42E8AD),
+                backgroundColor: const Color(0xFF303358)),
+              Center(child: Text('${(progress * 100).round()}%',
+                  style: const TextStyle(fontSize: 39, fontWeight: FontWeight.w900))),
+            ]),
+          ),
+          const SizedBox(height: 20),
+          Text('$approved approved of ${tasks.length} tasks'),
+        ]),
+      );
 }
